@@ -91,7 +91,7 @@ export default function UserLoginPage() {
               value={cedula}
               onChange={(e) => setCedula(e.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-              placeholder="Ej. 1715369664"
+              placeholder="Ej. 1715035487"
             />
           </div>
 
