@@ -294,7 +294,7 @@ export default function ScannerPage() {
         if (isMounted) setMessage("Apunta la cámara al código QR");
       } catch (scannerError) {
         if (isMounted) {
-          setError("No se pudo acceder a la cámara.");
+          setError("No se pudo acceder a la cámara. Asegúrate de dar permisos o usar HTTPS.");
           setMessage("");
         }
       }
@@ -385,7 +385,7 @@ export default function ScannerPage() {
                 type="number"
                 min="0"
                 max="59"
-                value={minutoLimite}
+                value="minutoLimite"
                 onChange={(e) => setMinutoLimite(e.target.value)}
                 className="w-16 rounded-xl border border-sky-200 bg-white px-2 py-1.5 text-center font-bold text-slate-800 shadow-sm"
               />
@@ -419,8 +419,10 @@ export default function ScannerPage() {
           </button>
         </div>
 
-        {/* Lector QR */}
-        <div id="qr-reader" className="mx-auto mt-6 max-w-sm overflow-hidden rounded-2xl border border-sky-200 shadow-sm" />
+        {/* Contenedor del Lector QR con estilo limpio (html5-qrcode inyecta su video aquí) */}
+        <div className="mt-6 overflow-hidden rounded-2xl border border-sky-200 bg-slate-950 p-2 shadow-inner">
+          <div id="qr-reader" className="w-full overflow-hidden rounded-xl" />
+        </div>
         
         {message && <p className="mt-4 text-center text-sm font-medium text-slate-700">{message}</p>}
         {emailStatus && (
