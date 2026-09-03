@@ -88,7 +88,7 @@ export default function UserPerfilPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-8 flex flex-col items-center justify-center text-slate-900">
+    <main className="w-full px-4 py-8 flex flex-col items-center justify-start text-slate-900 my-auto">
       <div className="w-full max-w-lg">
         <div className="flex justify-between items-center mb-4 px-2">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Mi Credencial Digital</span>
