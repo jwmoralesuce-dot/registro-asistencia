@@ -324,10 +324,10 @@ export default function ScannerPage() {
     <main className="min-h-screen bg-sky-50 px-4 py-8 flex items-center justify-center text-slate-800">
       <div className="w-full max-w-xl rounded-3xl bg-white border border-sky-200 p-6 sm:p-8 shadow-xl relative overflow-hidden">
         
-        {/* Franja superior institucional con los colores claros y limpios del sello */}
+        {/* Franja superior institucional */}
         <div className="absolute top-0 left-0 right-0 h-2.5 bg-gradient-to-r from-sky-400 via-amber-300 to-emerald-400" />
 
-        {/* Barra superior con estilo unificado y profesional */}
+        {/* Barra superior */}
         <div className="mb-6 grid grid-cols-2 gap-2 border-b border-sky-100 pb-4 pt-2">
           <Link href="/" className="flex items-center justify-center rounded-xl bg-sky-50 px-3 py-2.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 border border-sky-200 shadow-sm transition">
             ← Atrás
@@ -385,7 +385,7 @@ export default function ScannerPage() {
                 type="number"
                 min="0"
                 max="59"
-                value="minutoLimite"
+                value={minutoLimite}
                 onChange={(e) => setMinutoLimite(e.target.value)}
                 className="w-16 rounded-xl border border-sky-200 bg-white px-2 py-1.5 text-center font-bold text-slate-800 shadow-sm"
               />
@@ -393,7 +393,7 @@ export default function ScannerPage() {
           )}
         </div>
 
-        {/* Botones de Modo Entrada / Salida con paleta profesional unificada */}
+        {/* Botones de Modo Entrada / Salida */}
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -419,7 +419,7 @@ export default function ScannerPage() {
           </button>
         </div>
 
-        {/* Contenedor del Lector QR con estilo limpio (html5-qrcode inyecta su video aquí) */}
+        {/* Lector QR */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-sky-200 bg-slate-950 p-2 shadow-inner">
           <div id="qr-reader" className="w-full overflow-hidden rounded-xl" />
         </div>
@@ -439,7 +439,7 @@ export default function ScannerPage() {
           </div>
         )}
 
-        {/* Pie de tarjeta sutil */}
+        {/* Pie de tarjeta */}
         <div className="mt-8 pt-4 border-t border-sky-100 text-center">
           <p className="text-[10px] text-slate-400 font-medium">
             Sistema Oficial de Control de Presencia • UCE
