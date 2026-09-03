@@ -345,17 +345,18 @@ export default function ScannerPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900">
       <section className="mx-auto max-w-xl rounded-2xl bg-white p-6 shadow-lg">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
-          <Link href="/" className="rounded-lg bg-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-300">
+        {/* Barra superior de acciones optimizada en cuadrícula 2x2 para móvil */}
+        <div className="mb-6 grid grid-cols-2 gap-2 border-b border-slate-100 pb-4">
+          <Link href="/" className="flex items-center justify-center rounded-xl bg-slate-100 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 border border-slate-200 shadow-sm transition">
             ← Atrás
           </Link>
-          <button type="button" onClick={descargarExcel} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">
+          <button type="button" onClick={descargarExcel} className="flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-sm transition">
             📊 Descargar Excel
           </button>
-          <button type="button" onClick={handleEndMeeting} disabled={isEndingMeeting} className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50">
+          <button type="button" onClick={handleEndMeeting} disabled={isEndingMeeting} className="flex items-center justify-center rounded-xl bg-rose-600 px-3 py-2.5 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50 shadow-sm transition">
             {isEndingMeeting ? "Procesando..." : "🛑 Terminar Reunión"}
           </button>
-          <Link href="/" className="rounded-lg bg-red-100 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-200">
+          <Link href="/" className="flex items-center justify-center rounded-xl bg-red-100 px-3 py-2.5 text-xs font-semibold text-red-700 hover:bg-red-200 shadow-sm transition">
             ✕ Salir
           </Link>
         </div>
