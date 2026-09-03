@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { collection, doc, setDoc } from "firebase/firestore";
-import { db } from "../../../lib/firebase"; // Ajusta tu ruta a firebase si es necesario
+import { db } from "../../../lib/firebase"; 
 import Link from "next/link";
 import * as XLSX from "xlsx";
 
@@ -38,18 +38,18 @@ export default function ImportUsersPage() {
         let countSuccess = 0;
 
         for (const row of data) {
-          // Asegúrate de que las columnas en tu Excel se llamen exactamente id, name y email
-          // O adáptalo si tus columnas tienen tildes (ej: row["Cédula"])
-          const userId = String(row.id || row["Cédula"] || row["ID"] || "").trim();
-          const userName = String(row.name || row["Nombre"] || row["Nombre Completo"] || "").trim();
-          const userEmail = String(row.email || row["Correo"] || "").trim();
+          // Adaptado a las columnas reales de tu Excel: 'CÉDULA' y 'APELLIDOS Y NOMBRES'
+          const userId = String(row["CÉDULA"] || row["id"] || row["ID"] || "").trim();
+          const userName = String(row["APELLIDOS Y NOMBRES"] || row["name"] || row["Nombre"] || "").trim();
+          // El correo pasa a ser opcional (vacío si no existe) para que no bloquee la subida
+          const userEmail = String(row["email"] || row["Correo"] || "").trim();
 
-          if (userId) {
-            // Usamos setDoc con el ID como clave de documento para evitar duplicados si subes el archivo dos veces
+          // Validamos que al menos exista la cédula y el nombre
+          if (userId && userName) {
             await setDoc(doc(db, "users", userId), {
               id: userId,
               name: userName,
-              email: userEmail,
+              email: userEmail, // Se guardará vacío si no lo tiene, listo para actualizarse después
               createdAt: new Date(),
             });
             countSuccess++;
@@ -81,7 +81,7 @@ export default function ImportUsersPage() {
 
         <h1 className="text-2xl font-bold">Importar Usuarios masivamente</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Sube tu archivo Excel (`.xlsx` o `.xls`). Debe contener las columnas: <code className="bg-slate-100 px-1 py-0.5 font-bold text-indigo-600">id</code> (o Cédula), <code className="bg-slate-100 px-1 py-0.5 font-bold text-indigo-600">name</code> y <code className="bg-slate-100 px-1 py-0.5 font-bold text-indigo-600">email</code>.
+          Sube tu archivo Excel (`.xlsx` o `.xls`). Detectará automáticamente las columnas <code className="bg-slate-100 px-1 py-0.5 font-bold text-indigo-600">CÉDULA</code> y <code className="bg-slate-100 px-1 py-0.5 font-bold text-indigo-600">APELLIDOS Y NOMBRES</code>.
         </p>
 
         <div className="mt-6">
