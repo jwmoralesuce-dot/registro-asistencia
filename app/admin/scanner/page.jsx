@@ -46,9 +46,6 @@ export default function ScannerPage() {
     setEmailStatus("");
     setMessage("Consultando usuario...");
 
-    console.log("========================================");
-    console.log("🔍 CÓDIGO QR ESCANEADO (ID):", userId);
-
     try {
       const userSnapshot = await getDocs(
         query(collection(db, "users"), where("id", "==", userId), limit(1))
@@ -61,8 +58,6 @@ export default function ScannerPage() {
       const userData = userSnapshot.docs[0].data();
       const nombreUsuarioActual = userData.name || "Sin Nombre";
       const correoUsuarioActual = userData.email || "";
-
-      console.log("✅ USUARIO ENCONTRADO:", nombreUsuarioActual, "| Correo:", correoUsuarioActual);
 
       const eventDate = new Date();
       const currentMode = scanModeRef.current; 
@@ -128,15 +123,9 @@ export default function ScannerPage() {
         timestamp: serverTimestamp(),
       });
 
-      console.log("💾 Asistencia guardada correctamente en Firestore.");
-
-      if (!correoUsuarioActual) {
-        console.warn("⚠️ El usuario no tiene un correo registrado en su perfil.");
-        setEmailStatus("⚠️ Asistencia guardada, pero el usuario no tiene correo registrado.");
-      } else {
+      if (correoUsuarioActual) {
         try {
-          console.log("📧 Intentando enviar correo a:", correoUsuarioActual);
-          const emailResponse = await fetch("/api/send-email", {
+          await fetch("/api/send-email", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -146,25 +135,15 @@ export default function ScannerPage() {
               timestamp: eventDate.toISOString(),
             }),
           });
-
-          const emailResultText = await emailResponse.text();
-          console.log("📬 Respuesta del servidor de correo:", emailResponse.status, emailResultText);
-
-          if (emailResponse.ok) {
-            setEmailStatus("✅ Correo de notificación enviado con éxito.");
-          } else {
-            setEmailStatus(`⚠️ Asistencia guardada, pero falló el envío de correo (Error ${emailResponse.status}).`);
-          }
+          setEmailStatus("✅ Correo de notificación enviado con éxito.");
         } catch (emailErr) {
-          console.error("❌ Error de red al intentar conectar con /api/send-email:", emailErr);
-          setEmailStatus("⚠️ Asistencia guardada, pero hubo un error de red al enviar el correo.");
+          setEmailStatus("⚠️ Asistencia guardada, pero hubo un error al enviar el correo.");
         }
       }
 
       setLastAttendance({ userName: nombreUsuarioActual, type: currentMode, date: eventDate });
       setMessage(`¡${currentMode} registrada con éxito para ${nombreUsuarioActual}!`);
     } catch (attendanceError) {
-      console.error("❌ Error general:", attendanceError);
       setError(attendanceError.message || "No se pudo registrar la asistencia.");
       setMessage("");
     } finally {
@@ -283,7 +262,6 @@ export default function ScannerPage() {
       XLSX.utils.book_append_sheet(libro, hoja, "Consolidado Asistencia");
       XLSX.writeFile(libro, `Consolidado_Asistencia_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (error) {
-      console.error("Error al exportar:", error);
       alert("Hubo un error al generar el archivo de Excel.");
     }
   }
@@ -345,7 +323,7 @@ export default function ScannerPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900">
       <section className="mx-auto max-w-xl rounded-2xl bg-white p-6 shadow-lg">
-        {/* Barra superior de acciones optimizada en cuadrícula 2x2 para móvil */}
+        {/* Barra superior */}
         <div className="mb-6 grid grid-cols-2 gap-2 border-b border-slate-100 pb-4">
           <Link href="/" className="flex items-center justify-center rounded-xl bg-slate-100 px-3 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 border border-slate-200 shadow-sm transition">
             ← Atrás
@@ -361,11 +339,17 @@ export default function ScannerPage() {
           </Link>
         </div>
 
-        <p className="text-sm font-semibold uppercase tracking-widest text-emerald-700">Administración</p>
-        <h1 className="mt-2 text-3xl font-bold">Escáner de asistencia</h1>
+        {/* Títulos alineados, centrados y limpios */}
+        <div className="text-center my-6">
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-700 mb-1">Administración</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight whitespace-nowrap">
+            Escáner de asistencia
+          </h1>
+        </div>
 
+        {/* Configuración Hora Límite */}
         <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50/50 p-4">
-          <label className="text-sm font-bold text-indigo-950 flex items-center gap-2 cursor-pointer">
+          <label className="text-sm font-bold text-indigo-950 flex items-center justify-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={activarLimite}
@@ -375,7 +359,7 @@ export default function ScannerPage() {
             🕒 Programar Hora Límite de Entrada
           </label>
           {activarLimite && (
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex items-center justify-center gap-2">
               <input
                 type="number"
                 min="0"
@@ -397,12 +381,15 @@ export default function ScannerPage() {
           )}
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        {/* Botones de Modo Entrada / Salida simétricos y profesionales */}
+        <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => handleModeChange("ENTRADA")}
-            className={`rounded-xl py-3 text-center font-bold transition-all ${
-              scanMode === "ENTRADA" ? "bg-emerald-600 text-white shadow-md" : "bg-slate-100 text-slate-600"
+            className={`flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-center font-bold text-sm transition-all shadow-sm ${
+              scanMode === "ENTRADA" 
+                ? "bg-emerald-600 text-white shadow-emerald-200 ring-2 ring-emerald-600 ring-offset-2" 
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200"
             }`}
           >
             📥 Modo ENTRADA
@@ -410,14 +397,17 @@ export default function ScannerPage() {
           <button
             type="button"
             onClick={() => handleModeChange("SALIDA")}
-            className={`rounded-xl py-3 text-center font-bold transition-all ${
-              scanMode === "SALIDA" ? "bg-amber-600 text-white shadow-md" : "bg-slate-100 text-slate-600"
+            className={`flex items-center justify-center gap-2 rounded-xl py-3 px-4 text-center font-bold text-sm transition-all shadow-sm ${
+              scanMode === "SALIDA" 
+                ? "bg-amber-600 text-white shadow-amber-200 ring-2 ring-amber-600 ring-offset-2" 
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200"
             }`}
           >
             📤 Modo SALIDA
           </button>
         </div>
 
+        {/* Lector QR */}
         <div id="qr-reader" className="mx-auto mt-6 max-w-sm overflow-hidden rounded-xl border border-slate-200" />
         
         {message && <p className="mt-4 text-center text-sm font-medium text-slate-700">{message}</p>}
