@@ -158,7 +158,7 @@ export default function ScannerPage() {
     if (!confirmEnd) return;
 
     setIsEndingMeeting(true);
-    setMessage("Procesando faltas de la asamblea...");
+    setMessage("Buscando asistencias y usuarios registrados...");
     setError("");
     setEmailStatus("");
 
@@ -169,20 +169,33 @@ export default function ScannerPage() {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
-      const attendanceSnapshot = await getDocs(collection(db, "attendance"));
-      const attendeesTodayIds = new Set();
+      setMessage("Analizando quiénes asistieron hoy...");
 
+      const attendanceQuery = query(
+        collection(db, "attendance"),
+        where("timestamp", ">=", todayStart)
+      );
+      const attendanceSnapshot = await getDocs(attendanceQuery);
+      
+      const attendeesTodayIds = new Set();
       attendanceSnapshot.forEach(doc => {
         const data = doc.data();
-        if (data.timestamp && data.type === "ENTRADA") {
-          if (data.timestamp.toDate() >= todayStart) {
-            attendeesTodayIds.add(String(data.userId));
-          }
+        if (data.userId && data.type === "ENTRADA") {
+          attendeesTodayIds.add(String(data.userId).trim());
         }
       });
 
-      const absentUsers = allUsers.filter(user => !attendeesTodayIds.has(String(user.id)));
+      const absentUsers = allUsers.filter(user => !attendeesTodayIds.has(String(user.id).trim()));
 
+      if (absentUsers.length === 0) {
+        setMessage("¡Reunión finalizada! Todos los usuarios asistieron.");
+        return;
+      }
+
+      setMessage(`Registrando ${absentUsers.length} faltas...`);
+
+      // Se usa new Date() para asegurar que el registro tenga fecha inmediata legible para el Excel
+      const now = new Date();
       let countFaltas = 0;
       for (const user of absentUsers) {
         await addDoc(collection(db, "attendance"), {
@@ -190,13 +203,14 @@ export default function ScannerPage() {
           userName: user.name || "Sin Nombre",
           userEmail: user.email || "",
           type: "FALTA A LA ASAMBLEA",
-          timestamp: serverTimestamp(),
+          timestamp: now, 
         });
         countFaltas++;
       }
 
-      setMessage(`¡Reunión finalizada! Se registraron ${countFaltas} faltas.`);
+      setMessage(`¡Reunión finalizada con éxito! Se registraron ${countFaltas} faltas.`);
     } catch (err) {
+      console.error(err);
       setError(err.message || "Ocurrió un error al procesar las faltas.");
       setMessage("");
     } finally {
@@ -213,7 +227,11 @@ export default function ScannerPage() {
         const data = doc.data();
         if (!data.timestamp) return;
 
-        const fechaObj = data.timestamp.toDate();
+        // Soporte tanto para Firestore Timestamps como para Objetos Date nativos
+        const fechaObj = typeof data.timestamp.toDate === "function" 
+          ? data.timestamp.toDate() 
+          : new Date(data.timestamp);
+
         const fechaKey = fechaObj.toISOString().slice(0, 10);
         const userId = String(data.userId || "Sin ID");
         const compositeKey = `${fechaKey}_${userId}`;
@@ -239,29 +257,39 @@ export default function ScannerPage() {
           registro["Hora Salida"] = horaFormateada;
           registro["Estado / Novedad"] = "Asistió completo";
         } else if (data.type === "FALTA A LA ASAMBLEA") {
+          registro["Hora Entrada"] = "Ausente";
+          registro["Hora Salida"] = "Ausente";
           registro["Estado / Novedad"] = "FALTA A LA ASAMBLEA";
         }
       });
 
-      Object.values(registrosPorUsuarioYFecha).forEach(registro => {
-        if (registro["Hora Entrada"] !== "No registrada" && registro["Hora Salida"] === "No registrada" && registro["Estado / Novedad"] !== "FALTA A LA ASAMBLEA") {
-          registro["Estado / Novedad"] = "Solo registró entrada";
-        }
-      });
-
-      const datosParaExcel = Object.values(registrosPorUsuarioYFecha);
-      if (datosParaExcel.length === 0) {
+      const todosLosRegistros = Object.values(registrosPorUsuarioYFecha);
+      if (todosLosRegistros.length === 0) {
         alert("No hay registros todavía para exportar.");
         return;
       }
 
-      datosParaExcel.sort((a, b) => new Date(b.Fecha) - new Date(a.Fecha));
+      const registrosPorDia = {};
+      todosLosRegistros.forEach(item => {
+        if (!registrosPorDia[item.Fecha]) {
+          registrosPorDia[item.Fecha] = [];
+        }
+        registrosPorDia[item.Fecha].push(item);
+      });
 
-      const hoja = XLSX.utils.json_to_sheet(datosParaExcel);
       const libro = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(libro, hoja, "Consolidado Asistencia");
-      XLSX.writeFile(libro, `Consolidado_Asistencia_${new Date().toISOString().slice(0, 10)}.xlsx`);
+
+      Object.keys(registrosPorDia).sort().forEach(fecha => {
+        const datosDia = registrosPorDia[fecha];
+        const datosLimpios = datosDia.map(({ Fecha, ...resto }) => resto);
+        
+        const hoja = XLSX.utils.json_to_sheet(datosLimpios);
+        XLSX.utils.book_append_sheet(libro, hoja, fecha);
+      });
+
+      XLSX.writeFile(libro, `Asistencia_Por_Dias_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (error) {
+      console.error(error);
       alert("Hubo un error al generar el archivo de Excel.");
     }
   }
@@ -345,15 +373,19 @@ export default function ScannerPage() {
 
         {/* Encabezado e indicador institucional */}
         <div className="text-center my-6">
+          <div className="flex justify-center mb-4">
+            <img 
+              src="/logo_sindicato.png" 
+              alt="Logo Sindicato" 
+              className="h-24 w-24 object-contain bg-sky-50 rounded-2xl p-2 border border-sky-200 shadow-sm" 
+            />
+          </div>
           <p className="text-[11px] font-extrabold tracking-widest text-sky-600 uppercase mb-1">
             Universidad Central del Ecuador
           </p>
           <h2 className="text-xs font-semibold text-slate-500 mb-3">
             Sindicato 14 de Noviembre
           </h2>
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-100 border border-sky-300 flex items-center justify-center text-2xl mb-3 shadow-sm text-sky-600">
-            🛡️
-          </div>
           <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
             Escáner de Asistencia
           </h1>
@@ -443,6 +475,9 @@ export default function ScannerPage() {
         <div className="mt-8 pt-4 border-t border-sky-100 text-center">
           <p className="text-[10px] text-slate-400 font-medium">
             Sistema Oficial de Control de Presencia • UCE
+          </p>
+          <p className="text-[9px] text-slate-400 tracking-tight mt-0.5">
+            Desarrollado por MSc. Jonathan Morales
           </p>
         </div>
 

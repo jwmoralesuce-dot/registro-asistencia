@@ -39,39 +39,69 @@ export default function UserPerfilPage() {
     }
   }
 
-  // Convierte la imagen a Base64 para guardarla directamente en Firestore sin usar Storage
+  // Función para comprimir y redimensionar la imagen antes de convertirla a Base64
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !userData) return;
 
-    // Validar que no sea muy pesada (máx 1MB para que entre sin problemas en Firestore)
-    if (file.size > 1024 * 1024) {
-      setStatusMessage("❌ La imagen es muy pesada. Máximo 1MB.");
-      return;
-    }
-
     setUploading(true);
-    setStatusMessage("Procesando fotografía...");
+    setStatusMessage("Procesando y optimizando fotografía...");
 
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = async () => {
-      try {
-        const base64Image = reader.result;
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      
+      img.onload = async () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 600; // Ancho máximo ideal para el carnet
+        const MAX_HEIGHT = 600; // Alto máximo ideal
+        let width = img.width;
+        let height = img.height;
 
-        // Actualizamos el campo 'photo' en Firestore con el texto Base64
-        const userRef = doc(db, "users", userData.id);
-        await updateDoc(userRef, { photo: base64Image });
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
 
-        setUserData({ ...userData, photo: base64Image });
-        setStatusMessage("✅ ¡Foto actualizada con éxito!");
-      } catch (err) {
-        console.error(err);
-        setStatusMessage("❌ Error al guardar la foto.");
-      } finally {
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convertir a JPEG con calidad del 80% (pesará muy pocos KBs y se verá perfecta)
+        const base64Image = canvas.toDataURL("image/jpeg", 0.8);
+
+        try {
+          // Actualizamos el campo 'photo' en Firestore con la imagen comprimida
+          const userRef = doc(db, "users", userData.id);
+          await updateDoc(userRef, { photo: base64Image });
+
+          setUserData({ ...userData, photo: base64Image });
+          setStatusMessage("✅ ¡Foto actualizada con éxito!");
+        } catch (err) {
+          console.error(err);
+          setStatusMessage("❌ Error al guardar la foto en la base de datos.");
+        } finally {
+          setUploading(false);
+        }
+      };
+
+      img.onerror = () => {
         setUploading(false);
-      }
+        setStatusMessage("❌ Error al procesar la imagen.");
+      };
     };
+
     reader.onerror = () => {
       setUploading(false);
       setStatusMessage("❌ Error al leer el archivo.");
@@ -99,9 +129,17 @@ export default function UserPerfilPage() {
 
         {userData ? (
           <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
-            <div className="bg-indigo-900 text-white p-4 text-center">
-              <p className="text-[10px] tracking-widest uppercase font-semibold text-indigo-200">Universidad Central del Ecuador</p>
-              <h2 className="text-sm font-bold tracking-wide mt-0.5">Sindicato 14 de Noviembre</h2>
+            {/* ENCABEZADO CON LOGO Y TÍTULOS */}
+            <div className="bg-indigo-900 text-white p-4 flex items-center justify-between">
+              <img 
+                src="/logo_sindicato.png" 
+                alt="Logo Sindicato" 
+                className="h-16 w-16 object-contain mr-3 bg-white/10 rounded-md p-1 flex-shrink-0" 
+              />
+              <div className="text-center flex-grow">
+                <p className="text-[10px] tracking-widest uppercase font-semibold text-indigo-200">Universidad Central del Ecuador</p>
+                <h2 className="text-sm font-bold tracking-wide mt-0.5">Sindicato 14 de Noviembre</h2>
+              </div>
             </div>
 
             <div className="p-6">
@@ -122,7 +160,7 @@ export default function UserPerfilPage() {
                   </div>
 
                   <label className="mt-3 bg-indigo-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer hover:bg-indigo-700 transition-all shadow">
-                    {uploading ? "Guardando..." : "📷 Tomar o Subir Foto"}
+                    {uploading ? "Procesando..." : "📷 Tomar o Subir Foto"}
                     <input type="file" accept="image/*" capture="user" onChange={handlePhotoUpload} className="hidden" disabled={uploading} />
                   </label>
                   {statusMessage && <p className="mt-1 text-[10px] font-semibold text-center text-slate-600 max-w-[140px]">{statusMessage}</p>}
@@ -141,9 +179,13 @@ export default function UserPerfilPage() {
               </div>
             </div>
 
+            {/* PIE DE PÁGINA CON CREDENCIAL Y AUTOR */}
             <div className="bg-slate-50 border-t border-slate-100 py-2.5 px-4 text-center">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Credencial Oficial de Asistencia
+              </p>
+              <p className="text-[9px] text-slate-400 tracking-tight mt-0.5">
+                Desarrollado por MSc. Jonathan Morales
               </p>
             </div>
           </div>

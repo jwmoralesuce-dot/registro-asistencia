@@ -201,13 +201,20 @@ export default function CarnetsPage() {
               </div>
 
               {/* --- ENCABEZADO DEL CARNÉ --- */}
-              <div className="bg-gradient-to-r from-indigo-700 to-indigo-900 px-3 py-2 text-white text-center print:bg-indigo-800 print:py-1.5">
-                <p className="text-xs uppercase tracking-wider font-semibold text-indigo-200 print:text-[11px]">
-                  Universidad Central del Ecuador
-                </p>
-                <h2 className="text-base font-bold leading-tight print:text-[14px]">
-                  Sindicato 14 de Noviembre
-                </h2>
+              <div className="bg-gradient-to-r from-indigo-700 to-indigo-900 px-3 py-2 text-white flex items-center justify-between print:bg-indigo-800 print:py-1.5">
+                <img 
+                  src="/logo_sindicato.png" 
+                  alt="Logo Sindicato" 
+                  className="h-16 w-16 object-contain mr-3 bg-white/10 rounded-md p-1 flex-shrink-0" 
+                />
+                <div className="text-center flex-grow">
+                  <p className="text-xs uppercase tracking-wider font-semibold text-indigo-200 print:text-[11px]">
+                    Universidad Central del Ecuador
+                  </p>
+                  <h2 className="text-base font-bold leading-tight print:text-[14px]">
+                    Sindicato 14 de Noviembre
+                  </h2>
+                </div>
               </div>
 
               {/* --- CUERPO DEL CARNÉ --- */}
@@ -262,6 +269,9 @@ export default function CarnetsPage() {
               <div className="bg-slate-50 px-3 py-1.5 border-t border-slate-100 text-center print:bg-slate-100 print:border-t print:py-1">
                 <p className="text-[11px] text-slate-600 font-bold uppercase tracking-wide print:text-[10px]">
                   Credencial Oficial de Asistencia
+                </p>
+                <p className="text-[9px] text-slate-400 tracking-tight mt-0.5 print:text-[8px]">
+                  Desarrollado por MSc. Jonathan Morales
                 </p>
               </div>
             </div>
