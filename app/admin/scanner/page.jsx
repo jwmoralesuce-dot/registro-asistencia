@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { collection, addDoc, serverTimestamp, getDocs, query, where, limit } from "firebase/firestore";
-import { db } from "../../../lib/firebase";
+import { collection, addDoc, serverTimestamp, getDocs, query, where, limit, updateDoc, doc } from "firebase/firestore";
+import { db, storage } from "../../../lib/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Link from "next/link";
 import * as XLSX from "xlsx";
 
@@ -31,15 +32,101 @@ export default function ScannerPage() {
   const [error, setError] = useState("");
   const [emailStatus, setEmailStatus] = useState("");
   const [lastAttendance, setLastAttendance] = useState(null);
+  const [showCardModal, setShowCardModal] = useState(false);
   const [isEndingMeeting, setIsEndingMeeting] = useState(false);
+  
+  const [migrating, setMigrating] = useState(false);
+
+  const playFeedbackAudio = (tipo, textoAudio) => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      osc.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      if (tipo === "success") {
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); 
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1); 
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+      } else {
+        osc.frequency.setValueAtTime(220, audioCtx.currentTime); 
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime + 0.15);
+        gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+      }
+    } catch (e) {
+      console.error("AudioContext error:", e);
+    }
+
+    if ("speechSynthesis" in window && textoAudio) {
+      window.speechSynthesis.cancel(); 
+      const utterance = new SpeechSynthesisUtterance(textoAudio);
+      utterance.lang = "es-ES";
+      utterance.rate = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
 
   const handleModeChange = (mode) => {
     setScanMode(mode);
     scanModeRef.current = mode;
   };
 
+  const migrarFotosAStorage = async () => {
+    if (!confirm("¿Estás seguro de iniciar la migración de las fotos de Firestore a Storage para todos los usuarios?")) return;
+    
+    setMigrating(true);
+    let count = 0;
+
+    try {
+      const querySnapshot = await getDocs(collection(db, "users"));
+      
+      for (const docItem of querySnapshot.docs) {
+        const userData = docItem.data();
+        const rawPhoto = userData.photo || userData.foto;
+
+        if (rawPhoto && rawPhoto.startsWith("data:image")) {
+          try {
+            const response = await fetch(rawPhoto);
+            const blob = await response.blob();
+            
+            const userId = userData.id || docItem.id;
+            const storageRef = ref(storage, `users_photos/${userId}_migrated.jpg`);
+            
+            const snapshot = await uploadBytes(storageRef, blob);
+            const downloadUrl = await getDownloadURL(snapshot.ref);
+            
+            const userRef = doc(db, "users", docItem.id);
+            await updateDoc(userRef, {
+              photo: downloadUrl,
+              foto: downloadUrl
+            });
+
+            count++;
+          } catch (err) {
+            console.error(`Error al migrar el usuario ${userData.id}:`, err);
+          }
+        }
+      }
+
+      alert(`¡Migración completada con éxito! Se migraron ${count} fotos a Storage.`);
+    } catch (error) {
+      console.error("Error general en la migración:", error);
+      alert("Hubo un error durante el proceso de migración.");
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   async function registerAttendance(userId) {
-    if (!userId) return;
+    if (!userId || processingRef.current) return;
 
     processingRef.current = true;
     setError("");
@@ -52,12 +139,21 @@ export default function ScannerPage() {
       );
 
       if (userSnapshot.empty) {
-        throw new Error(`No existe un usuario en Firebase con el ID: ${userId}`);
+        throw new Error(`No existe un usuario registrado con el ID: ${userId}`);
       }
 
       const userData = userSnapshot.docs[0].data();
       const nombreUsuarioActual = userData.name || "Sin Nombre";
       const correoUsuarioActual = userData.email || "";
+      
+      const fotoUsuarioActual = 
+        userData.photo || 
+        userData.foto || 
+        userData.photoUrl || 
+        userData.image || 
+        userData.imageUrl || 
+        userData.avatar || 
+        "";
 
       const eventDate = new Date();
       const currentMode = scanModeRef.current; 
@@ -75,20 +171,25 @@ export default function ScannerPage() {
       let hasEntryToday = false;
       let hasExitToday = false;
 
-      todayHistorySnapshot.forEach(doc => {
-        const data = doc.data();
+      todayHistorySnapshot.forEach((docItem) => {
+        const data = docItem.data();
         if (data.timestamp) {
-          const recordDate = data.timestamp.toDate();
+          const recordDate = typeof data.timestamp.toDate === "function" 
+            ? data.timestamp.toDate() 
+            : new Date(data.timestamp);
+
           if (recordDate >= todayStart) {
-            if (data.type === "ENTRADA") hasEntryToday = true;
+            if (data.type === "ENTRADA" || data.type === "ENTRADA CON ATRASO") hasEntryToday = true;
             if (data.type === "SALIDA") hasExitToday = true;
           }
         }
       });
 
+      let finalRecordType = currentMode;
+
       if (currentMode === "ENTRADA") {
         if (hasEntryToday) {
-          throw new Error("El usuario ya registró su entrada el día de hoy.");
+          throw new Error(`${nombreUsuarioActual} ya registró su entrada el día de hoy.`);
         }
 
         if (activarLimiteRef.current) {
@@ -99,19 +200,17 @@ export default function ScannerPage() {
           const minutosActuales = eventDate.getMinutes();
 
           if (horaActual > hLimiteNum || (horaActual === hLimiteNum && minutosActuales > mLimiteNum)) {
-            const hFormatted = String(hLimiteNum).padStart(2, '0');
-            const mFormatted = String(mLimiteNum).padStart(2, '0');
-            throw new Error(`Entrada fuera de tiempo. La hora límite era las ${hFormatted}:${mFormatted}.`);
+            finalRecordType = "ENTRADA CON ATRASO";
           }
         }
       }
 
       if (currentMode === "SALIDA") {
         if (!hasEntryToday) {
-          throw new Error("Primero registre la entrada.");
+          throw new Error(`Primero debe registrar la entrada para ${nombreUsuarioActual}.`);
         }
         if (hasExitToday) {
-          throw new Error("El usuario ya registró su salida el día de hoy.");
+          throw new Error(`${nombreUsuarioActual} ya registró su salida el día de hoy.`);
         }
       }
 
@@ -119,7 +218,7 @@ export default function ScannerPage() {
         userId,
         userName: nombreUsuarioActual,
         userEmail: correoUsuarioActual,
-        type: currentMode,
+        type: finalRecordType,
         timestamp: serverTimestamp(),
       });
 
@@ -131,7 +230,7 @@ export default function ScannerPage() {
             body: JSON.stringify({
               userName: nombreUsuarioActual,
               userEmail: correoUsuarioActual,
-              type: currentMode,
+              type: finalRecordType,
               timestamp: eventDate.toISOString(),
             }),
           });
@@ -141,15 +240,45 @@ export default function ScannerPage() {
         }
       }
 
-      setLastAttendance({ userName: nombreUsuarioActual, type: currentMode, date: eventDate });
-      setMessage(`¡${currentMode} registrada con éxito para ${nombreUsuarioActual}!`);
+      setLastAttendance({ 
+        id: userId,
+        userName: nombreUsuarioActual, 
+        userEmail: correoUsuarioActual,
+        userPhoto: fotoUsuarioActual,
+        type: finalRecordType, 
+        date: eventDate 
+      });
+      
+      setShowCardModal(true);
+      setMessage(`¡${finalRecordType} registrada con éxito para ${nombreUsuarioActual}!`);
+
+      const mensajeVoz = finalRecordType === "ENTRADA CON ATRASO" 
+        ? `${nombreUsuarioActual}, entrada con atraso registrada con éxito.` 
+        : `${nombreUsuarioActual}, ${finalRecordType.toLowerCase()} registrada con éxito.`;
+      
+      playFeedbackAudio("success", mensajeVoz);
+
+      window.setTimeout(() => {
+        setShowCardModal(false);
+        setEmailStatus("");
+        setMessage("Apunta la cámara al código QR");
+      }, 3500);
+
     } catch (attendanceError) {
-      setError(attendanceError.message || "No se pudo registrar la asistencia.");
+      const errorMsg = attendanceError.message || "No se pudo registrar la asistencia.";
+      setError(errorMsg);
       setMessage("");
+
+      playFeedbackAudio("error", errorMsg);
+      
+      window.setTimeout(() => {
+        setError("");
+        setMessage("Apunta la cámara al código QR");
+      }, 3000);
     } finally {
       window.setTimeout(() => {
         processingRef.current = false;
-      }, 2500);
+      }, 1500);
     }
   }
 
@@ -164,7 +293,7 @@ export default function ScannerPage() {
 
     try {
       const usersSnapshot = await getDocs(collection(db, "users"));
-      const allUsers = usersSnapshot.docs.map(doc => doc.data());
+      const allUsers = usersSnapshot.docs.map(docItem => ({ id: docItem.id, ...docItem.data() }));
 
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
@@ -178,9 +307,9 @@ export default function ScannerPage() {
       const attendanceSnapshot = await getDocs(attendanceQuery);
       
       const attendeesTodayIds = new Set();
-      attendanceSnapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.userId && data.type === "ENTRADA") {
+      attendanceSnapshot.forEach(docItem => {
+        const data = docItem.data();
+        if (data.userId && (data.type === "ENTRADA" || data.type === "ENTRADA CON ATRASO")) {
           attendeesTodayIds.add(String(data.userId).trim());
         }
       });
@@ -192,23 +321,46 @@ export default function ScannerPage() {
         return;
       }
 
-      setMessage(`Registrando ${absentUsers.length} faltas...`);
+      setMessage(`Registrando y notificando ${absentUsers.length} faltas...`);
 
-      // Se usa new Date() para asegurar que el registro tenga fecha inmediata legible para el Excel
       const now = new Date();
       let countFaltas = 0;
+      let countCorreosEnviados = 0;
+
       for (const user of absentUsers) {
+        const userId = user.id;
+        const userName = user.name || "Sin Nombre";
+        const userEmail = user.email || "";
+
         await addDoc(collection(db, "attendance"), {
-          userId: user.id,
-          userName: user.name || "Sin Nombre",
-          userEmail: user.email || "",
+          userId: userId,
+          userName: userName,
+          userEmail: userEmail,
           type: "FALTA A LA ASAMBLEA",
           timestamp: now, 
         });
         countFaltas++;
+
+        if (userEmail) {
+          try {
+            await fetch("/api/send-email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                userName: userName,
+                userEmail: userEmail,
+                type: "FALTA A LA ASAMBLEA",
+                timestamp: now.toISOString(),
+              }),
+            });
+            countCorreosEnviados++;
+          } catch (emailErr) {
+            console.error(`Error enviando correo de falta a ${userEmail}:`, emailErr);
+          }
+        }
       }
 
-      setMessage(`¡Reunión finalizada con éxito! Se registraron ${countFaltas} faltas.`);
+      setMessage(`¡Reunión finalizada! Se registraron ${countFaltas} faltas y se enviaron ${countCorreosEnviados} correos.`);
     } catch (err) {
       console.error(err);
       setError(err.message || "Ocurrió un error al procesar las faltas.");
@@ -223,11 +375,10 @@ export default function ScannerPage() {
       const querySnapshot = await getDocs(collection(db, "attendance"));
       const registrosPorUsuarioYFecha = {};
 
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
+      querySnapshot.forEach((docItem) => {
+        const data = docItem.data();
         if (!data.timestamp) return;
 
-        // Soporte tanto para Firestore Timestamps como para Objetos Date nativos
         const fechaObj = typeof data.timestamp.toDate === "function" 
           ? data.timestamp.toDate() 
           : new Date(data.timestamp);
@@ -242,6 +393,7 @@ export default function ScannerPage() {
             "Cédula / ID": data.userId,
             "Nombre Completo": data.userName || "Sin Nombre",
             "Correo": data.userEmail || "Sin Correo",
+            "Fecha Registro": fechaKey,
             "Hora Entrada": "No registrada",
             "Hora Salida": "No registrada",
             "Estado / Novedad": "Pendiente de Salida"
@@ -253,9 +405,19 @@ export default function ScannerPage() {
 
         if (data.type === "ENTRADA") {
           registro["Hora Entrada"] = horaFormateada;
+          if (registro["Estado / Novedad"] === "Pendiente de Salida") {
+            registro["Estado / Novedad"] = "Asistió a tiempo";
+          }
+        } else if (data.type === "ENTRADA CON ATRASO") {
+          registro["Hora Entrada"] = `${horaFormateada} (ATRASO)`;
+          registro["Estado / Novedad"] = "Con Atraso";
         } else if (data.type === "SALIDA") {
           registro["Hora Salida"] = horaFormateada;
-          registro["Estado / Novedad"] = "Asistió completo";
+          if (registro["Estado / Novedad"] === "Con Atraso") {
+            registro["Estado / Novedad"] = "Asistió con Atraso (Completado)";
+          } else {
+            registro["Estado / Novedad"] = "Asistió completo";
+          }
         } else if (data.type === "FALTA A LA ASAMBLEA") {
           registro["Hora Entrada"] = "Ausente";
           registro["Hora Salida"] = "Ausente";
@@ -270,7 +432,7 @@ export default function ScannerPage() {
       }
 
       const registrosPorDia = {};
-      todosLosRegistros.forEach(item => {
+      todosLosRegistros.forEach((item) => {
         if (!registrosPorDia[item.Fecha]) {
           registrosPorDia[item.Fecha] = [];
         }
@@ -281,6 +443,11 @@ export default function ScannerPage() {
 
       Object.keys(registrosPorDia).sort().forEach(fecha => {
         const datosDia = registrosPorDia[fecha];
+        
+        datosDia.sort((a, b) => 
+          String(a["Nombre Completo"]).localeCompare(String(b["Nombre Completo"]), "es", { sensitivity: "base" })
+        );
+
         const datosLimpios = datosDia.map(({ Fecha, ...resto }) => resto);
         
         const hoja = XLSX.utils.json_to_sheet(datosLimpios);
@@ -352,10 +519,58 @@ export default function ScannerPage() {
     <main className="min-h-screen bg-sky-50 px-4 py-8 flex items-center justify-center text-slate-800">
       <div className="w-full max-w-xl rounded-3xl bg-white border border-sky-200 p-6 sm:p-8 shadow-xl relative overflow-hidden">
         
-        {/* Franja superior institucional */}
         <div className="absolute top-0 left-0 right-0 h-2.5 bg-gradient-to-r from-sky-400 via-amber-300 to-emerald-400" />
 
-        {/* Barra superior */}
+        {showCardModal && lastAttendance && (
+          <div className="absolute inset-0 z-50 bg-white/95 backdrop-blur-md flex flex-col items-center justify-center p-6 transition-all animate-fadeIn">
+            <div className={`w-full max-w-sm rounded-3xl border-2 ${lastAttendance.type.includes("ATRASO") ? "border-amber-400" : "border-emerald-400"} bg-white p-6 shadow-2xl text-center relative overflow-hidden`}>
+              
+              <div className={`absolute top-0 left-0 right-0 h-2 ${lastAttendance.type.includes("ATRASO") ? "bg-amber-500" : "bg-emerald-500"}`} />
+              
+              <span className={`inline-block px-3 py-1 ${lastAttendance.type.includes("ATRASO") ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"} font-bold text-xs rounded-full uppercase tracking-wider mb-3`}>
+                ⚠️ ¡{lastAttendance.type} Registrada!
+              </span>
+
+              <div className="flex justify-center mb-3">
+                {lastAttendance.userPhoto && lastAttendance.userPhoto.length > 10 ? (
+                  <img 
+                    src={lastAttendance.userPhoto} 
+                    alt={lastAttendance.userName}
+                    className="h-24 w-24 object-cover rounded-2xl border-2 border-sky-200 shadow-md"
+                  />
+                ) : (
+                  <div className="h-24 w-24 bg-sky-100 rounded-2xl flex items-center justify-center text-sky-700 font-black text-3xl border-2 border-sky-200 shadow-inner">
+                    {lastAttendance.userName.charAt(0)}
+                  </div>
+                )}
+              </div>
+
+              <h3 className="text-lg font-black text-slate-900 mb-1">
+                {lastAttendance.userName}
+              </h3>
+              
+              <p className="text-xs font-semibold text-slate-500 mb-1">
+                Cédula / ID: <span className="text-slate-700 font-bold">{lastAttendance.id}</span>
+              </p>
+              
+              <p className="text-xs text-slate-400 mb-3 truncate px-4">
+                {lastAttendance.userEmail || "Sin correo registrado"}
+              </p>
+
+              {emailStatus && (
+                <p className={`mb-3 rounded-xl p-2 text-center text-[11px] font-semibold ${emailStatus.includes("✅") ? "bg-sky-50 text-sky-800 border border-sky-200" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
+                  {emailStatus}
+                </p>
+              )}
+
+              <div className={`border-t border-slate-100 pt-3 text-[11px] font-bold ${lastAttendance.type.includes("ATRASO") ? "text-amber-600" : "text-emerald-600"}`}>
+                ✔ Listo para el siguiente escaneo...
+              </div>
+
+            </div>
+          </div>
+        )}
+
         <div className="mb-6 grid grid-cols-2 gap-2 border-b border-sky-100 pb-4 pt-2">
           <Link href="/" className="flex items-center justify-center rounded-xl bg-sky-50 px-3 py-2.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 border border-sky-200 shadow-sm transition">
             ← Atrás
@@ -371,7 +586,17 @@ export default function ScannerPage() {
           </Link>
         </div>
 
-        {/* Encabezado e indicador institucional */}
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={migrarFotosAStorage}
+            disabled={migrating}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition"
+          >
+            {migrating ? "⏳ Migrando fotos a Storage..." : "🔄 Migrar fotos de Firestore a Storage"}
+          </button>
+        </div>
+
         <div className="text-center my-6">
           <div className="flex justify-center mb-4">
             <img 
@@ -391,7 +616,6 @@ export default function ScannerPage() {
           </h1>
         </div>
 
-        {/* Configuración Hora Límite */}
         <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
           <label className="text-sm font-bold text-sky-950 flex items-center justify-center gap-2 cursor-pointer">
             <input
@@ -400,7 +624,7 @@ export default function ScannerPage() {
               onChange={(e) => setActivarLimite(e.target.checked)}
               className="h-4 w-4 rounded border-sky-300 text-sky-600 focus:ring-sky-500"
             />
-            🕒 Programar Hora Límite de Entrada
+            🕒 Programar Hora Límite de Entrada (con control de atrasos)
           </label>
           {activarLimite && (
             <div className="mt-3 flex items-center justify-center gap-2">
@@ -425,7 +649,6 @@ export default function ScannerPage() {
           )}
         </div>
 
-        {/* Botones de Modo Entrada / Salida */}
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -451,27 +674,13 @@ export default function ScannerPage() {
           </button>
         </div>
 
-        {/* Lector QR */}
         <div className="mt-6 overflow-hidden rounded-2xl border border-sky-200 bg-slate-950 p-2 shadow-inner">
           <div id="qr-reader" className="w-full overflow-hidden rounded-xl" />
         </div>
         
         {message && <p className="mt-4 text-center text-sm font-medium text-slate-700">{message}</p>}
-        {emailStatus && (
-          <p className={`mt-2 rounded-xl p-3 text-center text-xs font-semibold ${emailStatus.includes("✅") ? "bg-sky-50 text-sky-800 border border-sky-200" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
-            {emailStatus}
-          </p>
-        )}
         {error && <p className="mt-4 rounded-xl bg-rose-50 p-3 text-center text-sm font-semibold text-rose-700 border border-rose-200">{error}</p>}
 
-        {lastAttendance && (
-          <div className="mt-6 rounded-2xl p-4 text-center border bg-sky-50 border-sky-200 shadow-sm">
-            <p className="font-semibold text-sky-900">{lastAttendance.userName}</p>
-            <p className="mt-1 text-2xl font-bold text-sky-700">{lastAttendance.type}</p>
-          </div>
-        )}
-
-        {/* Pie de tarjeta */}
         <div className="mt-8 pt-4 border-t border-sky-100 text-center">
           <p className="text-[10px] text-slate-400 font-medium">
             Sistema Oficial de Control de Presencia • UCE

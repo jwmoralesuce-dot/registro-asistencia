@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { db } from "../../lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, deleteField } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 
@@ -28,7 +28,13 @@ export default function UserPerfilPage() {
       const docSnap = await getDoc(docRef);
 
       if (docSnap.exists()) {
-        setUserData({ id: docSnap.id, ...docSnap.data() });
+        // Obtenemos los datos y aseguramos que si existe 'foto' antigua, la mapeemos o prioricemos 'photo'
+        const data = docSnap.data();
+        setUserData({ 
+          id: docSnap.id, 
+          ...data, 
+          photo: data.photo || data.foto || "" 
+        });
       } else {
         setUserData(null);
       }
@@ -39,7 +45,7 @@ export default function UserPerfilPage() {
     }
   }
 
-  // Función para comprimir y redimensionar la imagen antes de convertirla a Base64
+  // Función para comprimir, redimensionar y actualizar la imagen
   const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !userData) return;
@@ -55,8 +61,8 @@ export default function UserPerfilPage() {
       
       img.onload = async () => {
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 600; // Ancho máximo ideal para el carnet
-        const MAX_HEIGHT = 600; // Alto máximo ideal
+        const MAX_WIDTH = 600;
+        const MAX_HEIGHT = 600;
         let width = img.width;
         let height = img.height;
 
@@ -78,15 +84,20 @@ export default function UserPerfilPage() {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Convertir a JPEG con calidad del 80% (pesará muy pocos KBs y se verá perfecta)
         const base64Image = canvas.toDataURL("image/jpeg", 0.8);
 
         try {
-          // Actualizamos el campo 'photo' en Firestore con la imagen comprimida
           const userRef = doc(db, "users", userData.id);
-          await updateDoc(userRef, { photo: base64Image });
+          
+          // Guardamos en ambos campos ('photo' y 'foto') por seguridad para evitar conflictos con otras pantallas
+          await updateDoc(userRef, { 
+            photo: base64Image,
+            foto: base64Image 
+          });
 
-          setUserData({ ...userData, photo: base64Image });
+          // Forzamos la recarga completa desde Firestore para asegurar que se refresque
+          await fetchUserData(userData.id);
+
           setStatusMessage("✅ ¡Foto actualizada con éxito!");
         } catch (err) {
           console.error(err);
@@ -106,6 +117,35 @@ export default function UserPerfilPage() {
       setUploading(false);
       setStatusMessage("❌ Error al leer el archivo.");
     };
+  };
+
+  // Función para eliminar la foto actual del perfil
+  const handleDeletePhoto = async () => {
+    if (!userData || !userData.photo) return;
+    if (!confirm("¿Estás seguro de que deseas eliminar tu foto de perfil?")) return;
+
+    setUploading(true);
+    setStatusMessage("Eliminando fotografía...");
+
+    try {
+      const userRef = doc(db, "users", userData.id);
+      
+      // Eliminamos ambos campos de Firestore para limpiar la base de datos por completo
+      await updateDoc(userRef, { 
+        photo: deleteField(),
+        foto: deleteField()
+      });
+
+      // Recargamos los datos desde Firestore
+      await fetchUserData(userData.id);
+
+      setStatusMessage("🗑️ Foto eliminada correctamente.");
+    } catch (err) {
+      console.error(err);
+      setStatusMessage("❌ Error al eliminar la foto.");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -159,11 +199,26 @@ export default function UserPerfilPage() {
                     )}
                   </div>
 
-                  <label className="mt-3 bg-indigo-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer hover:bg-indigo-700 transition-all shadow">
-                    {uploading ? "Procesando..." : "📷 Tomar o Subir Foto"}
-                    <input type="file" accept="image/*" capture="user" onChange={handlePhotoUpload} className="hidden" disabled={uploading} />
-                  </label>
-                  {statusMessage && <p className="mt-1 text-[10px] font-semibold text-center text-slate-600 max-w-[140px]">{statusMessage}</p>}
+                  {/* CONTROLES DE FOTO: CAMBIAR / ELIMINAR */}
+                  <div className="flex items-center gap-2 mt-3">
+                    <label className="bg-indigo-600 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg cursor-pointer hover:bg-indigo-700 transition-all shadow">
+                      {uploading ? "Procesando..." : userData.photo ? "🔄 Cambiar Foto" : "📷 Subir Foto"}
+                      <input type="file" accept="image/*" capture="user" onChange={handlePhotoUpload} className="hidden" disabled={uploading} />
+                    </label>
+
+                    {userData.photo && (
+                      <button 
+                        onClick={handleDeletePhoto}
+                        disabled={uploading}
+                        className="bg-red-100 text-red-700 text-[11px] font-bold px-2.5 py-1.5 rounded-lg hover:bg-red-200 transition-all shadow-sm"
+                        title="Eliminar foto actual"
+                      >
+                        🗑️ Borrar
+                      </button>
+                    )}
+                  </div>
+
+                  {statusMessage && <p className="mt-1 text-[10px] font-semibold text-center text-slate-600 max-w-[150px]">{statusMessage}</p>}
                 </div>
 
                 <div className="flex-1 space-y-1.5 text-xs text-slate-700 text-center sm:text-left">

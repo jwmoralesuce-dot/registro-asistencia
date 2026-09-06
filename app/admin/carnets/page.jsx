@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
-import { db } from "../../../lib/firebase"; 
+import { collection, getDocs, setDoc, updateDoc, deleteDoc, doc } from "firebase/firestore";
+import { db } from "../../../lib/firebase";
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
 
@@ -13,8 +13,8 @@ export default function CarnetsPage() {
 
   // Estados para el Modal de Agregar / Editar
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState(null); 
-  const [formData, setFormData] = useState({ id: "", name: "", cargo: "", email: "", foto: "" });
+  const [editingUser, setEditingUser] = useState(null);
+  const [formData, setFormData] = useState({ id: "", name: "", cargo: "", email: "", photo: "" });
   const [saving, setSaving] = useState(false);
 
   // 1. Cargar los usuarios desde Firebase al montar el componente
@@ -22,8 +22,8 @@ export default function CarnetsPage() {
     try {
       const querySnapshot = await getDocs(collection(db, "users"));
       const usersList = querySnapshot.docs.map((docItem) => ({
-        docId: docItem.id, 
-        ...docItem.data(), 
+        docId: docItem.id,
+        ...docItem.data(),
       }));
       setUsers(usersList);
     } catch (error) {
@@ -40,7 +40,7 @@ export default function CarnetsPage() {
   // 2. Filtrar usuarios en tiempo real según el término de búsqueda
   const filteredUsers = users.filter(
     (user) =>
-      user.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.id?.toString().includes(searchTerm) ||
       user.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -53,18 +53,18 @@ export default function CarnetsPage() {
   // 4. Funciones de Gestión (Guardar / Editar / Eliminar)
   const handleOpenCreateModal = () => {
     setEditingUser(null);
-    setFormData({ id: "", name: "", cargo: "", email: "", foto: "" });
+    setFormData({ id: "", name: "", cargo: "", email: "", photo: "" });
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (user) => {
     setEditingUser(user);
-    setFormData({ 
-      id: user.id || "", 
-      name: user.name || "", 
-      cargo: user.cargo || "", 
-      email: user.email || user.correo || "", 
-      foto: user.foto || user.photo || user.imagen || user.avatar || "" 
+    setFormData({
+      id: user.id || user.docId || "",
+      name: user.name || "",
+      cargo: user.cargo || "",
+      email: user.email || user.correo || "",
+      photo: user.photo || user.foto || user.imagen || user.avatar || ""
     });
     setIsModalOpen(true);
   };
@@ -78,23 +78,22 @@ export default function CarnetsPage() {
 
     setSaving(true);
     try {
+      const cedulaId = formData.id.trim();
       const userData = {
-        id: formData.id.trim(),
+        id: cedulaId,
         name: formData.name.trim(),
         cargo: formData.cargo ? formData.cargo.trim() : "",
         email: formData.email ? formData.email.trim() : "",
-        foto: formData.foto ? formData.foto.trim() : "",
+        photo: formData.photo ? formData.photo.trim() : "",
+        foto: formData.photo ? formData.photo.trim() : "", // Sincronizado para evitar conflictos con el perfil
       };
 
-      if (editingUser) {
-        const userRef = doc(db, "users", editingUser.docId);
-        await updateDoc(userRef, userData);
-      } else {
-        await addDoc(collection(db, "users"), userData);
-      }
-      
+      // Usamos setDoc con el ID de la cédula para garantizar que el documento se guarde bajo su número de cédula exacto
+      const userRef = doc(db, "users", cedulaId);
+      await setDoc(userRef, userData, { merge: true });
+     
       setIsModalOpen(false);
-      fetchUsers(); 
+      fetchUsers();
     } catch (error) {
       console.error("Error al guardar usuario:", error);
       alert("Hubo un error al guardar el registro.");
@@ -107,7 +106,7 @@ export default function CarnetsPage() {
     if (confirm(`¿Estás seguro de eliminar a ${userName}?`)) {
       try {
         await deleteDoc(doc(db, "users", docId));
-        fetchUsers(); 
+        fetchUsers();
       } catch (error) {
         console.error("Error al eliminar:", error);
         alert("No se pudo eliminar el registro.");
@@ -172,10 +171,9 @@ export default function CarnetsPage() {
       <div className="mx-auto max-w-7xl grid grid-cols-1 md:grid-cols-2 gap-6 print:grid-cols-1 print:gap-4 print:space-y-0">
         {filteredUsers.map((user) => {
           const fullName = user.name || "Sin Nombre";
-          const userId = user.id; 
+          const userId = user.id || user.docId;
           const userEmail = user.email || user.correo;
-          // Captura la foto sin importar cómo esté nombrada en la BD
-          const userPhoto = user.foto || user.photo || user.imagen || user.avatar;
+          const userPhoto = user.photo || user.foto || user.imagen || user.avatar;
 
           return (
             <div
@@ -202,10 +200,10 @@ export default function CarnetsPage() {
 
               {/* --- ENCABEZADO DEL CARNÉ --- */}
               <div className="bg-gradient-to-r from-indigo-700 to-indigo-900 px-3 py-2 text-white flex items-center justify-between print:bg-indigo-800 print:py-1.5">
-                <img 
-                  src="/logo_sindicato.png" 
-                  alt="Logo Sindicato" 
-                  className="h-16 w-16 object-contain mr-3 bg-white/10 rounded-md p-1 flex-shrink-0" 
+                <img
+                  src="/logo_sindicato.png"
+                  alt="Logo Sindicato"
+                  className="h-16 w-16 object-contain mr-3 bg-white/10 rounded-md p-1 flex-shrink-0"
                 />
                 <div className="text-center flex-grow">
                   <p className="text-xs uppercase tracking-wider font-semibold text-indigo-200 print:text-[11px]">
@@ -219,17 +217,13 @@ export default function CarnetsPage() {
 
               {/* --- CUERPO DEL CARNÉ --- */}
               <div className="p-4 flex flex-col justify-between flex-grow print:p-4">
-                
-                {/* LÍNEA 1: NOMBRE COMPLETO */}
                 <div className="text-center w-full mb-1 pr-14 sm:pr-0">
                   <h3 className="text-base font-black text-slate-900 leading-tight print:text-[15px] uppercase">
                     {fullName || "Sin Nombre"}
                   </h3>
                 </div>
 
-                {/* LÍNEA 2: FOTO, DATOS Y QR */}
                 <div className="flex items-center justify-between gap-4">
-                  {/* Foto o Avatar */}
                   <div className="w-20 h-20 rounded-lg bg-slate-200 border-2 border-slate-300 shadow-sm overflow-hidden flex-shrink-0 flex items-center justify-center text-slate-500 font-bold text-xl print:w-20 print:h-20">
                     {userPhoto ? (
                       <img
@@ -242,7 +236,6 @@ export default function CarnetsPage() {
                     )}
                   </div>
 
-                  {/* Datos (Cédula, Cargo y Correo) */}
                   <div className="flex-grow min-w-0 text-left">
                     <p className="text-sm text-slate-700 font-medium print:text-[13px]">
                       Cédula: <span className="font-extrabold text-slate-900">{userId}</span>
@@ -257,12 +250,10 @@ export default function CarnetsPage() {
                     )}
                   </div>
 
-                  {/* Código QR */}
                   <div className="p-1.5 bg-white rounded border border-slate-200 shadow-sm flex-shrink-0 print:p-1">
                     <QRCodeSVG value={String(userId)} size={95} level="H" includeMargin={false} />
                   </div>
                 </div>
-
               </div>
 
               {/* --- PIE DEL CARNÉ --- */}
@@ -271,7 +262,7 @@ export default function CarnetsPage() {
                   Credencial Oficial de Asistencia
                 </p>
                 <p className="text-[9px] text-slate-400 tracking-tight mt-0.5 print:text-[8px]">
-                  Desarrollado por MSc. Jonathan Morales
+                  Universidad Central del Ecuador
                 </p>
               </div>
             </div>
@@ -279,7 +270,6 @@ export default function CarnetsPage() {
         })}
       </div>
 
-      {/* --- MENSAJE SI NO HAY RESULTADOS --- */}
       {filteredUsers.length === 0 && !loading && (
         <div className="text-center py-16 print:hidden">
           <p className="text-slate-500 text-sm">No se encontraron usuarios registrados con ese criterio.</p>
@@ -294,7 +284,7 @@ export default function CarnetsPage() {
               <h3 className="font-bold text-lg">
                 {editingUser ? "Editar Miembro" : "Agregar Nuevo Miembro"}
               </h3>
-              <button 
+              <button
                 onClick={() => setIsModalOpen(false)}
                 className="text-indigo-200 hover:text-white text-xl font-bold"
               >
@@ -364,8 +354,8 @@ export default function CarnetsPage() {
                 <input
                   type="text"
                   placeholder="data:image/jpeg;base64,..."
-                  value={formData.foto}
-                  onChange={(e) => setFormData({ ...formData, foto: e.target.value })}
+                  value={formData.photo}
+                  onChange={(e) => setFormData({ ...formData, photo: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900"
                 />
               </div>
@@ -398,7 +388,7 @@ export default function CarnetsPage() {
             size: A4 portrait;
             margin: 10mm;
           }
-          
+         
           body {
             width: 210mm;
             background: white !important;
